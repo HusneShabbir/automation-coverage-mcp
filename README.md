@@ -7,8 +7,8 @@ Plugins live at multiple levels (`workspaces/<ws>/plugins/<plugin>`, backend mod
 ## What it does
 
 1. **Discover** packages across `rhdh-plugins`, `community-plugins`, `rhdh`, `rhdh-plugin-export-overlays`, and shared Playwright helper repos.
-2. **Analyze** the current git diff (branch vs `origin/main` plus uncommitted work) and classify each file (util, React page, backend router, overlay metadata, platform, …).
-3. **Read coverage** (`coverage/coverage-final.json` or `lcov.info`) and intersect uncovered lines with the diff.
+2. **Analyze** the current git diff (branch vs `origin/main` plus uncommitted work) and classify each file (util, React page, backend router, overlay metadata, platform, …). When the branch is clean, pass `mode=workspace` to scan `src` instead.
+3. **Read coverage** (`coverage/coverage-final.json` or `lcov.info`) from the **cwd / scoped packages only** (never a sibling workspace) and intersect uncovered lines with the diff.
 4. **Recommend layers** using the cheapest-layer-wins ladder (unit → integration → component → plugin Playwright → overlay/cluster). Layers are pluggable YAML.
 5. **Emit briefs** agents can execute. UI briefs are Playwright MCP prompts: navigate, snapshot, generate locators, verify, then write the spec.
 
@@ -16,14 +16,16 @@ Coverage ranks gaps. It is not a merge gate. Each brief states the **failure the
 
 ## Pair with Playwright MCP
 
-Add both servers to Cursor MCP config. Playwright needs the testing capability so `browser_generate_locator` and `browser_verify_*` are available:
+Add both servers to Cursor MCP config (`~/.cursor/mcp.json`, or `.cursor/mcp.json` in this clone). Playwright needs the testing capability so `browser_generate_locator` and `browser_verify_*` are available.
+
+Substitute **`<ABS_PATH_TO_THIS_CLONE>`** with the absolute path of this repository on your machine (the directory that contains `src/index.ts`).
 
 ```json
 {
   "mcpServers": {
     "automation-coverage": {
       "command": "npx",
-      "args": ["tsx", "/Users/hushaik/redhat_projects/automation-coverage-mcp/src/index.ts"]
+      "args": ["tsx", "<ABS_PATH_TO_THIS_CLONE>/src/index.ts"]
     },
     "playwright": {
       "command": "npx",
@@ -32,6 +34,8 @@ Add both servers to Cursor MCP config. Playwright needs the testing capability s
   }
 }
 ```
+
+If the Cursor workspace *is* this repository, you can use the relative entry already in `.cursor/mcp.json` (`./src/index.ts`) instead of an absolute path.
 
 Agent loop for UI gaps:
 
@@ -50,7 +54,7 @@ Do not write Playwright from the scenario paragraph alone.
 | `coverage_gaps` | Uncovered ∩ changed lines |
 | `inventory_tests` | Existing tests (templates to mirror) |
 | `recommend_automation` | Cheapest layers + Playwright flag |
-| `generate_test_plan` | Full ordered plan with briefs |
+| `generate_test_plan` | Full ordered plan with briefs. `mode=workspace` fills layers on a clean branch |
 | `generate_layer_brief` | One layer (unit / integration / …) |
 | `generate_playwright_brief` | Playwright MCP prompt from UI gaps |
 
@@ -87,15 +91,25 @@ layers:
 
 ## Config lookup
 
-1. `AUTOMATION_COVERAGE_CONFIG`
+1. `AUTOMATION_COVERAGE_CONFIG` (absolute path to a YAML file)
 2. `.automation-coverage.yaml` walking up from `cwd`
 3. `~/.config/automation-coverage/config.yaml`
-4. Auto-detect a `redhat_projects` forest (`rhdh-plugins`, `community-plugins`, `rhdh`, overlays, `lightspeed-playwright-e2e`)
+4. Auto-detect: walk up from `cwd` until a parent directory contains sibling clones named `rhdh-plugins`, `community-plugins`, `rhdh`, `rhdh-plugin-export-overlays`, `lightspeed-playwright-e2e`, and/or `backstage`
+
+Forest paths in YAML expand `~` and `${ENV_VAR}`. Copy `config/rhdh-forest.example.yaml` and substitute **`${FOREST_ROOT}`** (or export it) — that value is the parent directory that *contains* your clones, not `rhdh-plugins` itself.
+
+| Token | Replace with |
+| --- | --- |
+| `${FOREST_ROOT}` | Absolute path of the folder that contains `rhdh-plugins`, `rhdh`, overlays, … |
+| `<ABS_PATH_TO_THIS_CLONE>` | Absolute path of this `automation-coverage-mcp` checkout |
+| `<plugin-workspace>` | Workspace folder name under `workspaces/` (e.g. `boost`) |
+
+Omit forest entries you have not cloned. If `${FOREST_ROOT}` is left unexpanded, those rows are ignored and auto-detect is used.
 
 ## Run
 
 ```bash
-cd /Users/hushaik/redhat_projects/automation-coverage-mcp
+cd <ABS_PATH_TO_THIS_CLONE>
 npm install
 npm test
 npm start   # stdio MCP
@@ -105,7 +119,7 @@ Produce a coverage report in the plugin workspace before planning (`yarn test:al
 
 ## Agent workflow
 
-1. `generate_test_plan` (or prompt `fill_automation_gaps`)
+1. `generate_test_plan` with `cwd` set to the plugin workspace. Use `mode=workspace` when git diff is empty (existing plugin, not a feature branch).
 2. Implement every `playwrightMcp: false` item by mirroring `template`
 3. For `playwrightMcp: true` items, run `generate_playwright_brief` and drive Playwright MCP
-4. Skip files in `skipped` (ignored wiring, already covered, non-source)
+4. Skip files in `skipped` (ignored wiring, already covered, non-source, already has a neighbor test)

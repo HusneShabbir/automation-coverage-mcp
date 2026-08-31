@@ -106,13 +106,16 @@ export function discoverForest(startDir: string, configured: ForestRepo[] = []):
 
   for (let i = 0; i < 12; i += 1) {
     const names = existsSync(dir) ? readdirSync(dir) : [];
+    let foundHere = false;
     for (const known of KNOWN_REPOS) {
       if (names.includes(known.dir)) {
+        foundHere = true;
         const path = resolve(dir, known.dir);
         seen.set(known.key, { key: known.key, path, kind: known.kind });
       }
     }
-    if (basename(dir) === 'redhat_projects' || seen.size >= 3) {
+    // This directory is the forest parent (siblings like rhdh-plugins, rhdh).
+    if (foundHere) {
       break;
     }
     const parent = dirname(dir);

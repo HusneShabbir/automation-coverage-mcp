@@ -17,9 +17,9 @@ Use the **automation-coverage** MCP as the planner and **playwright** MCP as the
 ## Steps
 
 1. If no `coverage/coverage-final.json` or `coverage/lcov.info` exists in the workspace, run that workspace's coverage script (`yarn test:all` or `yarn test --coverage --watchAll=false`) when it is cheap enough. If you cannot run it, still plan — changed lines are treated as uncovered.
-2. Call `discover_packages` and `list_layers`.
-3. Call `analyze_changes` then `coverage_gaps`.
-4. Call `generate_test_plan`. That JSON is the source of truth.
+2. Call `list_layers` and `discover_packages` with `cwd` set to the plugin workspace (`workspaces/<plugin-workspace>`, e.g. `workspaces/boost`) and `workspace` when you need to hide sibling workspaces.
+3. Call `analyze_changes` then `coverage_gaps`. If the branch is in sync with origin/main (empty file list), call `generate_test_plan` with `mode=workspace` so the planner scans `src` instead of git diff.
+4. Call `generate_test_plan`. That JSON is the source of truth. Prefer the **latest** automation-coverage MCP (workspace mode + scoped coverage). If the live MCP still returns 0 work items on a clean branch, it is stale — reload MCP or run `npx tsx` against `src/pipeline.ts`.
 5. Implement every work item where `playwrightMcp` is false:
    - Open `template` in full. If missing, glob the package for a sibling `*.test.ts(x)` and copy its imports.
    - Write the test at `outputPath` so it would catch `failureToCatch`.

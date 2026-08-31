@@ -30,7 +30,7 @@ describe('discoverPackages', () => {
     expect(packages[0].hasPlaywright).toBe(true);
   });
 
-  it('detects a redhat_projects-style forest', () => {
+  it('detects a forest from sibling clone directories', () => {
     const forestRoot = mkdtempSync(join(tmpdir(), 'rp-'));
     mkdirSync(join(forestRoot, 'rhdh-plugins'));
     mkdirSync(join(forestRoot, 'rhdh'));

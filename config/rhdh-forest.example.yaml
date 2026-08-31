@@ -1,27 +1,52 @@
 # Automation coverage — RHDH plugin forest
 #
-# Place this file at the repo root you want to plan from, or at
-# ~/.config/automation-coverage/config.yaml, or set
-# AUTOMATION_COVERAGE_CONFIG to its path.
+# Copy this file to one of:
+#   1. .automation-coverage.yaml at the repo you plan from
+#   2. ~/.config/automation-coverage/config.yaml
+#   3. any path, then: export AUTOMATION_COVERAGE_CONFIG=<that-path>
 #
-# Overlay extra layers or disable builtins. Coverage numbers rank gaps;
-# they are not a merge gate.
+# ---------------------------------------------------------------------------
+# SUBSTITUTE before use
+# ---------------------------------------------------------------------------
+# ${FOREST_ROOT}  Absolute path of the parent directory that CONTAINS your
+#                 clones — not a path inside rhdh-plugins itself.
+#
+#                 <FOREST_ROOT>/
+#                   rhdh-plugins/                  # github.com/redhat-developer/rhdh-plugins
+#                   community-plugins/             # github.com/backstage/community-plugins
+#                   rhdh/                          # github.com/redhat-developer/rhdh
+#                   rhdh-plugin-export-overlays/   # overlay export repo
+#                   lightspeed-playwright-e2e/     # shared Playwright helpers (optional)
+#
+# How to fill it in (pick one):
+#   A. Export once in your shell / Cursor MCP env:
+#        export FOREST_ROOT=/home/<you>/src
+#      and leave ${FOREST_ROOT} below as-is.
+#   B. Replace ${FOREST_ROOT} with that absolute path, e.g.
+#        path: /home/<you>/src/rhdh-plugins
+#   C. Use a home-relative path:
+#        path: ~/src/rhdh-plugins
+#
+# Omit any forest entry whose clone you do not have. Unexpanded ${FOREST_ROOT}
+# is ignored and the server falls back to auto-detect (sibling dirs named
+# rhdh-plugins, rhdh, … walking up from cwd).
+# ---------------------------------------------------------------------------
 
 forest:
   - key: plugins
-    path: /Users/hushaik/redhat_projects/rhdh-plugins
+    path: ${FOREST_ROOT}/rhdh-plugins
     kind: backstage-workspaces
   - key: community
-    path: /Users/hushaik/redhat_projects/community-plugins
+    path: ${FOREST_ROOT}/community-plugins
     kind: backstage-workspaces
   - key: rhdh
-    path: /Users/hushaik/redhat_projects/rhdh
+    path: ${FOREST_ROOT}/rhdh
     kind: rhdh-monorepo
   - key: overlay
-    path: /Users/hushaik/redhat_projects/rhdh-plugin-export-overlays
+    path: ${FOREST_ROOT}/rhdh-plugin-export-overlays
     kind: overlay-workspaces
   - key: shared-e2e
-    path: /Users/hushaik/redhat_projects/lightspeed-playwright-e2e
+    path: ${FOREST_ROOT}/lightspeed-playwright-e2e
     kind: shared-playwright
 
 coverage:

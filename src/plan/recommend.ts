@@ -14,6 +14,46 @@ import { isSourceKind } from '../discovery/classify.js';
 import { buildPlaywrightPrompt } from './playwright.js';
 import { buildLayerBrief } from './briefs.js';
 
+const DEFAULT_MAX_PER_LAYER: Record<string, number> = {
+  unit: 8,
+  integration: 2,
+  component: 6,
+  ui: 2,
+  smoke: 1,
+  'overlay-e2e': 1,
+  'cluster-free-e2e': 1,
+  'cluster-e2e': 1,
+};
+
+function isBackendHttpKind(kind: CoverageGap['file']['fileKind']): boolean {
+  return kind === 'backend-plugin' || kind === 'backend-router';
+}
+
+function alreadyHasNeighborTest(sourceRel: string, inventory: { file: string }[]): boolean {
+  const stem = basename(sourceRel).replace(/\.[^.]+$/, '');
+  return inventory.some(record => {
+    const name = record.file.split('/').pop() ?? '';
+    return name.includes(stem) && (name.includes('.test.') || name.includes('.spec.') || name.includes('.e2e.'));
+  });
+}
+
+function gapRank(gap: CoverageGap, pkg: DiscoveredPackage | undefined, hasNeighbor: boolean): number {
+  let rank = 0;
+  if (!hasNeighbor) {
+    rank += 20;
+  }
+  if (gap.file.fileKind === 'react-page' || gap.file.fileKind === 'backend-plugin') {
+    rank += 10;
+  }
+  if (pkg?.role === 'frontend-plugin' || pkg?.role === 'backend-plugin') {
+    rank += 5;
+  }
+  if (gap.filePct !== null) {
+    rank += (100 - gap.filePct) / 10;
+  }
+  return rank;
+}
+
 function locateOutput(
   layer: LayerDefinition,
   sourceRel: string,
@@ -28,11 +68,7 @@ function locateOutput(
     .replace('{workspace}', pkg.workspace ?? '');
 
   if (layer.locate.neighbor) {
-    const dir = dirname(sourceRel);
-    if (dir.includes('/src/')) {
-      return join(dir, '__tests__', naming).replaceAll('\\', '/');
-    }
-    return join(dir, naming).replaceAll('\\', '/');
+    return join(dirname(sourceRel), naming).replaceAll('\\', '/');
   }
   const directory = layer.locate.directory ?? 'e2e-tests';
   if (pkg.workspace && directory.startsWith('e2e-tests')) {
@@ -62,10 +98,12 @@ export function recommendPlan(input: {
   playwrightServerName: string;
   coverageSource?: string;
   patchTarget: number;
+  mode?: 'diff' | 'workspace';
 }): TestPlan {
   const workItems: WorkItem[] = [];
   const skipped: TestPlan['skipped'] = [];
   const inventoryCache = new Map<string, ReturnType<typeof inventoryLayer>>();
+  const workspaceMode = input.mode === 'workspace';
 
   const getInventory = (pkg: DiscoveredPackage, layer: LayerDefinition) => {
     const key = `${pkg.id}:${layer.id}`;
@@ -75,8 +113,15 @@ export function recommendPlan(input: {
     return inventoryCache.get(key)!;
   };
 
-  for (const gap of input.gaps) {
-    if (matchesAny(gap.file.relPath, input.ignore) || !isSourceKind(gap.file.fileKind)) {
+  const rankedGaps = [...input.gaps].sort((a, b) => {
+    const pkgA = input.packages.find(p => p.id === a.file.packageId);
+    const pkgB = input.packages.find(p => p.id === b.file.packageId);
+    return gapRank(b, pkgB, false) - gapRank(a, pkgA, false);
+  });
+
+  for (const gap of rankedGaps) {
+    const ignored = matchesAny(gap.file.relPath, input.ignore);
+    if ((ignored && !isBackendHttpKind(gap.file.fileKind)) || !isSourceKind(gap.file.fileKind)) {
       skipped.push({
         file: gap.file.relPath,
         reason: `ignored or non-source kind (${gap.file.fileKind})`,
@@ -104,6 +149,13 @@ export function recommendPlan(input: {
     for (const match of matches) {
       const layer = match.layer;
       const inventory = pkg ? getInventory(pkg, layer) : [];
+      if (workspaceMode && alreadyHasNeighborTest(gap.file.relPath, inventory)) {
+        skipped.push({
+          file: gap.file.relPath,
+          reason: `already has ${layer.id} neighbor test`,
+        });
+        continue;
+      }
       const template = findNeighborTemplate(gap.file.relPath, inventory);
       const outputPath = pkg
         ? locateOutput(layer, gap.file.relPath, pkg)
@@ -143,10 +195,26 @@ export function recommendPlan(input: {
     }
   }
 
-  const ui = workItems.filter(i => i.playwrightMcp).length;
-  const unitish = workItems.length - ui;
-  const summary = `Planned ${workItems.length} automation item(s) across ${
-    new Set(workItems.map(i => i.layerId)).size
+  const capped: WorkItem[] = [];
+  const perLayer = new Map<string, number>();
+  for (const item of workItems) {
+    const max = workspaceMode ? (DEFAULT_MAX_PER_LAYER[item.layerId] ?? 3) : Number.POSITIVE_INFINITY;
+    const count = perLayer.get(item.layerId) ?? 0;
+    if (count >= max) {
+      skipped.push({
+        file: item.sourceFile,
+        reason: `workspace mode cap (${max}) for layer ${item.layerId}`,
+      });
+      continue;
+    }
+    perLayer.set(item.layerId, count + 1);
+    capped.push(item);
+  }
+
+  const ui = capped.filter(i => i.playwrightMcp).length;
+  const unitish = capped.length - ui;
+  const summary = `Planned ${capped.length} automation item(s) across ${
+    new Set(capped.map(i => i.layerId)).size
   } layer(s) (${unitish} non-UI, ${ui} Playwright MCP). ${skipped.length} file(s) skipped.`;
 
   return {
@@ -154,7 +222,8 @@ export function recommendPlan(input: {
     summary,
     principles: PLAN_PRINCIPLES,
     coverageSource: input.coverageSource,
-    workItems,
+    mode: input.mode,
+    workItems: capped,
     skipped,
   };
 }

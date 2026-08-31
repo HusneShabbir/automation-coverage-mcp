@@ -70,7 +70,7 @@ export function inventoryLayer(
 ): TestRecord[] {
   const records: TestRecord[] = [];
   const searchRoots = [pkg.path];
-  if (pkg.workspace) {
+  if (layer.id === 'ui' && pkg.workspace) {
     searchRoots.push(join(pkg.repoRoot, 'workspaces', pkg.workspace));
   }
   if (layer.id === 'smoke' || layer.id === 'cluster-e2e' || layer.id === 'cluster-free-e2e') {

@@ -40,7 +40,7 @@ export function buildPlaywrightPrompt(input: {
     '1. Read the workspace playwright.config.ts (port, APP_MODE, testDir, locales).',
     `2. ${serverName}: browser_navigate to ${baseUrl} (or PLAYWRIGHT_URL / config baseURL).`,
     `3. ${serverName}: browser_snapshot — identify the UI for ${item.symbols[0] ?? 'the changed component'}.`,
-    `4. Explore the uncovered behavior with browser_click / browser_type / browser_wait_for.`,
+    `4. Explore the uncovered behavior with browser_click / browser_type / browser_wait_for. For list/catalog pages, drive search, filters, and alternate views. Assert outcomes (which rows remain, URL query params), not a dump of #root ARIA snapshots, nth(), or generated react-aria ids.`,
     `5. ${serverName}: browser_generate_locator for every element you will assert.`,
     `6. ${serverName}: browser_verify_element_visible / browser_verify_text_visible for expected states.`,
     '7. Implement a Playwright TypeScript test using @playwright/test from that message history.',

@@ -36,6 +36,37 @@ export const PLAN_PRINCIPLES = [
   'UI specs: explore with Playwright MCP first (navigate, snapshot, generate locators, verify), then write the file. Never generate Playwright code from a scenario paragraph alone.',
 ];
 
+const UNEXPANDED_ENV = /\$\{[A-Za-z_][A-Za-z0-9_]*\}/;
+const ANGLE_PLACEHOLDER = /<[^>]+>/;
+
+/**
+ * Expand `~` and `${ENV_VAR}` in config paths. Returns undefined when the
+ * value still contains a substitution token (`${FOREST_ROOT}`, `<FOREST_ROOT>`)
+ * so a copied example file does not get treated as a real forest.
+ */
+export function expandPath(
+  raw: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  let value = raw.trim();
+  if (!value || ANGLE_PLACEHOLDER.test(value)) {
+    return undefined;
+  }
+  if (value === '~') {
+    value = homedir();
+  } else if (value.startsWith('~/')) {
+    value = join(homedir(), value.slice(2));
+  }
+  value = value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, name: string) => {
+    const found = env[name];
+    return found === undefined ? match : found;
+  });
+  if (!value || UNEXPANDED_ENV.test(value) || ANGLE_PLACEHOLDER.test(value)) {
+    return undefined;
+  }
+  return resolve(value);
+}
+
 function isRepoKind(value: unknown): value is RepoKind {
   return (
     typeof value === 'string' &&
@@ -63,9 +94,13 @@ function parseForest(raw: unknown): ForestRepo[] {
       if (typeof rec.key !== 'string' || typeof rec.path !== 'string') {
         return undefined;
       }
+      const path = expandPath(rec.path);
+      if (!path) {
+        return undefined;
+      }
       return {
         key: rec.key,
-        path: resolve(rec.path),
+        path,
         kind: isRepoKind(rec.kind) ? rec.kind : 'generic',
       };
     })

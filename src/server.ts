@@ -5,7 +5,6 @@ import { findCoverageReport } from './coverage/find.js';
 import { loadCoverageFile } from './coverage/parse.js';
 import { buildGaps } from './coverage/gaps.js';
 import { discoverPackages, packageForPath } from './discovery/layout.js';
-import { attachPackages, analyzeGitChanges } from './git/diff.js';
 import { inventoryLayer } from './inventory/tests.js';
 import { runPipeline } from './pipeline.js';
 import { recommendPlan } from './plan/recommend.js';
@@ -76,15 +75,21 @@ export function createServer(): McpServer {
         'Discover plugin packages at every level of the RHDH forest (workspaces/*/plugins/*, rhdh plugins, overlay e2e, shared Playwright helpers).',
       inputSchema: {
         cwd: z.string().optional().describe('Starting directory for forest detection'),
+        workspace: z.string().optional().describe('Only packages in this workspace, e.g. boost'),
       },
     },
-    async ({ cwd }) => {
-      const config = loadConfig(cwd ?? process.cwd());
-      const packages = discoverPackages(config.forest);
+    async ({ cwd, workspace }) => {
+      const root = cwd ?? process.cwd();
+      const config = loadConfig(root);
+      const all = discoverPackages(config.forest);
+      const packages = workspace
+        ? all.filter(pkg => pkg.workspace === workspace)
+        : all.filter(pkg => pkg.path === root || pkg.path.startsWith(`${root}/`) || root.startsWith(pkg.path));
+      const scoped = packages.length ? packages : all;
       return json({
         forest: config.forest,
-        count: packages.length,
-        packages: packages.map(summarizePackage),
+        count: scoped.length,
+        packages: scoped.map(summarizePackage),
       });
     },
   );
@@ -100,28 +105,32 @@ export function createServer(): McpServer {
         base: z.string().optional().describe('Base ref, default origin/main'),
         includeUncommitted: z.boolean().optional(),
         includeUntracked: z.boolean().optional(),
+        mode: z
+          .enum(['diff', 'workspace'])
+          .optional()
+          .describe('diff = git changes only; workspace = scan source when the branch is clean'),
+        workspace: z.string().optional().describe('Workspace name filter, e.g. boost'),
       },
     },
-    async ({ cwd, base, includeUncommitted, includeUntracked }) => {
-      const root = cwd ?? process.cwd();
-      const config = loadConfig(root);
-      const packages = discoverPackages(config.forest);
-      const git = analyzeGitChanges({
-        cwd: root,
+    async ({ cwd, base, includeUncommitted, includeUntracked, mode, workspace }) => {
+      const pipeline = runPipeline({
+        cwd: cwd ?? process.cwd(),
         base,
         includeUncommitted,
         includeUntracked,
+        mode,
+        workspace,
       });
-      const files = attachPackages(git.files, packages);
       return json({
-        repoRoot: git.repoRoot,
-        base: git.base,
-        files: files.map(file => ({
+        repoRoot: pipeline.repoRoot,
+        base: pipeline.base,
+        mode: pipeline.mode,
+        files: pipeline.files.map(file => ({
           relPath: file.relPath,
           status: file.status,
           fileKind: file.fileKind,
           packageId: file.packageId,
-          addedLines: file.addedLines,
+          addedLines: file.addedLines.slice(0, 20),
         })),
       });
     },
@@ -193,30 +202,30 @@ export function createServer(): McpServer {
         cwd: z.string().optional(),
         base: z.string().optional(),
         reportPath: z.string().optional(),
+        mode: z.enum(['diff', 'workspace']).optional(),
+        workspace: z.string().optional(),
       },
     },
-    async ({ cwd, base, reportPath }) => {
-      const root = cwd ?? process.cwd();
-      const config = loadConfig(root);
-      const packages = discoverPackages(config.forest);
-      const git = analyzeGitChanges({ cwd: root, base });
-      const files = attachPackages(git.files, packages);
-      const found = reportPath
-        ? { path: reportPath, report: loadCoverageFile(reportPath, git.repoRoot) }
-        : findCoverageReport(
-            [root, git.repoRoot, ...packages.map(pkg => pkg.path)],
-            config.coverage.reportNames,
-          );
-      const gaps = buildGaps(files, found?.report);
+    async ({ cwd, base, reportPath, mode, workspace }) => {
+      const pipeline = runPipeline({
+        cwd: cwd ?? process.cwd(),
+        base,
+        mode,
+        workspace,
+      });
+      const gaps = reportPath
+        ? buildGaps(pipeline.files, loadCoverageFile(reportPath, pipeline.repoRoot))
+        : pipeline.gaps;
       return json({
-        coverageSource: found?.path ?? null,
+        mode: pipeline.mode,
+        coverageSource: reportPath ?? pipeline.coverageSource ?? null,
         gaps: gaps.map(gap => ({
           file: gap.file.relPath,
           fileKind: gap.file.fileKind,
           packageId: gap.file.packageId,
           filePct: gap.filePct,
-          uncoveredChangedLines: gap.uncoveredChangedLines,
-          coveredChangedLines: gap.coveredChangedLines,
+          uncoveredChangedLines: gap.uncoveredChangedLines.slice(0, 40),
+          coveredChangedLines: gap.coveredChangedLines.slice(0, 20),
           symbols: gap.symbols,
         })),
       });
@@ -268,13 +277,17 @@ export function createServer(): McpServer {
         cwd: z.string().optional(),
         base: z.string().optional(),
         reportPath: z.string().optional(),
+        mode: z.enum(['diff', 'workspace']).optional(),
+        workspace: z.string().optional(),
       },
     },
-    async ({ cwd, base, reportPath }) => {
+    async ({ cwd, base, reportPath, mode, workspace }) => {
       const pipeline = runPipeline({
         cwd: cwd ?? process.cwd(),
         base,
         coverageRoot: reportPath ? undefined : cwd,
+        mode,
+        workspace,
       });
       if (reportPath) {
         const report = loadCoverageFile(reportPath, pipeline.repoRoot);
@@ -306,13 +319,20 @@ export function createServer(): McpServer {
         base: z.string().optional(),
         reportPath: z.string().optional(),
         includeUntracked: z.boolean().optional(),
+        mode: z
+          .enum(['diff', 'workspace'])
+          .optional()
+          .describe('workspace scans src when git diff is empty (or always when set)'),
+        workspace: z.string().optional(),
       },
     },
-    async ({ cwd, base, reportPath, includeUntracked }) => {
+    async ({ cwd, base, reportPath, includeUntracked, mode, workspace }) => {
       const pipeline = runPipeline({
         cwd: cwd ?? process.cwd(),
         base,
         includeUntracked,
+        mode,
+        workspace,
       });
       let plan = pipeline.plan;
       if (reportPath) {
@@ -342,10 +362,12 @@ export function createServer(): McpServer {
         cwd: z.string().optional(),
         layerId: z.string().describe('Layer id from list_layers'),
         base: z.string().optional(),
+        mode: z.enum(['diff', 'workspace']).optional(),
+        workspace: z.string().optional(),
       },
     },
-    async ({ cwd, layerId, base }) => {
-      const pipeline = runPipeline({ cwd: cwd ?? process.cwd(), base });
+    async ({ cwd, layerId, base, mode, workspace }) => {
+      const pipeline = runPipeline({ cwd: cwd ?? process.cwd(), base, mode, workspace });
       const items = pipeline.plan.workItems.filter(item => item.layerId === layerId);
       if (items.length === 0) {
         return json({
@@ -367,10 +389,12 @@ export function createServer(): McpServer {
       inputSchema: {
         cwd: z.string().optional(),
         base: z.string().optional(),
+        mode: z.enum(['diff', 'workspace']).optional(),
+        workspace: z.string().optional(),
       },
     },
-    async ({ cwd, base }) => {
-      const pipeline = runPipeline({ cwd: cwd ?? process.cwd(), base });
+    async ({ cwd, base, mode, workspace }) => {
+      const pipeline = runPipeline({ cwd: cwd ?? process.cwd(), base, mode, workspace });
       const items = pipeline.plan.workItems.filter(item => item.playwrightMcp);
       if (items.length === 0) {
         return json({
@@ -410,8 +434,8 @@ export function createServer(): McpServer {
               '',
               'Steps:',
               '1. Call list_layers and discover_packages.',
-              '2. Call analyze_changes then coverage_gaps (run yarn test --coverage first if no report exists).',
-              '3. Call generate_test_plan.',
+              '2. Call analyze_changes then coverage_gaps (run yarn test --coverage first if no report exists). If analyze_changes returns no files, call generate_test_plan with mode=workspace.',
+              '3. Call generate_test_plan (mode=workspace when filling an existing plugin, not just a branch diff).',
               '4. For each non-UI work item: open the template, mirror it, write the test, run the listed command.',
               '5. For each playwrightMcp work item: follow generate_playwright_brief with the playwright MCP. Explore first; then write the spec.',
               '6. Do not duplicate the same assertion at a more expensive layer.',

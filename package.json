@@ -26,6 +26,10 @@
     "testing"
   ],
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HusneShabbir/automation-coverage-mcp.git"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.19.1",
     "minimatch": "^10.0.3",

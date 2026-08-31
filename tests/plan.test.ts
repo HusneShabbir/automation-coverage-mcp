@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { recommendPlan } from '../src/plan/recommend.js';
 import { BUILTIN_LAYERS } from '../src/layers/builtins.js';
@@ -72,6 +75,69 @@ describe('recommendPlan', () => {
     expect(ui?.playwrightPrompt).toMatch(/DO NOT generate test code based on the scenario alone/);
     expect(ui?.playwrightPrompt).toMatch(/ScorecardPage/);
     expect(plan.workItems.some(item => item.layerId === 'component')).toBe(true);
+  });
+
+  it('plans backend plugin.ts even when plugin.ts is in the ignore list', () => {
+    const backend: DiscoveredPackage = {
+      ...pkg,
+      id: 'plugins:workspaces/scorecard/plugins/scorecard-backend',
+      name: '@red-hat-developer-hub/backstage-plugin-scorecard-backend',
+      path: '/repo/workspaces/scorecard/plugins/scorecard-backend',
+      relPath: 'workspaces/scorecard/plugins/scorecard-backend',
+      role: 'backend-plugin',
+    };
+    const plan = recommendPlan({
+      repoRoot: '/repo',
+      gaps: [
+        gap(
+          'workspaces/scorecard/plugins/scorecard-backend/src/plugin.ts',
+          'backend-plugin',
+        ),
+      ],
+      packages: [backend],
+      layers: BUILTIN_LAYERS,
+      ignore: ['**/src/plugin.ts'],
+      playwrightServerName: 'playwright',
+      patchTarget: 80,
+      mode: 'workspace',
+    });
+    expect(plan.workItems.some(item => item.layerId === 'integration')).toBe(true);
+  });
+
+  it('skips files that already have a neighbor test in workspace mode', () => {
+    const root = mkdtempSync(join(tmpdir(), 'acm-plan-'));
+    const plugin = join(root, 'workspaces', 'scorecard', 'plugins', 'scorecard');
+    mkdirSync(join(plugin, 'src', 'components', 'ScorecardPage'), { recursive: true });
+    writeFileSync(
+      join(plugin, 'src', 'components', 'ScorecardPage', 'ScorecardPage.tsx'),
+      'export const ScorecardPage = () => null;\n',
+    );
+    writeFileSync(
+      join(plugin, 'src', 'components', 'ScorecardPage', 'ScorecardPage.test.tsx'),
+      "describe('ScorecardPage', () => { it('renders', () => {}); });\n",
+    );
+
+    const localPkg: DiscoveredPackage = {
+      ...pkg,
+      path: plugin,
+      repoRoot: root,
+    };
+    const pageGap = gap(
+      'workspaces/scorecard/plugins/scorecard/src/components/ScorecardPage/ScorecardPage.tsx',
+      'react-page',
+    );
+    const plan = recommendPlan({
+      repoRoot: root,
+      gaps: [pageGap],
+      packages: [localPkg],
+      layers: BUILTIN_LAYERS,
+      ignore: [],
+      playwrightServerName: 'playwright',
+      patchTarget: 80,
+      mode: 'workspace',
+    });
+    expect(plan.workItems.filter(item => item.layerId === 'component')).toHaveLength(0);
+    expect(plan.skipped.some(s => s.reason.includes('neighbor test'))).toBe(true);
   });
 
   it('does not plan UI when changed lines are already covered', () => {

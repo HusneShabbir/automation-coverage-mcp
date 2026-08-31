@@ -193,6 +193,7 @@ export interface TestPlan {
   summary: string;
   principles: string[];
   coverageSource?: string;
+  mode?: 'diff' | 'workspace';
   workItems: WorkItem[];
   skipped: Array<{ file: string; reason: string }>;
 }
