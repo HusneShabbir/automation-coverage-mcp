@@ -1,0 +1,221 @@
+import type { FileKind, LayerDefinition } from '../types.js';
+
+const UNIT_LOGIC: FileKind[] = [
+  'unit-logic',
+  'frontend-api',
+  'frontend-hook',
+  'backend-service',
+];
+
+export const BUILTIN_LAYERS: LayerDefinition[] = [
+  {
+    id: 'unit',
+    title: 'L1 Unit (Jest / Vitest)',
+    description:
+      'Pure functions, hooks, API clients, and component logic. Colocate next to the source. Mirror a neighboring *.test.ts(x).',
+    kind: 'unit',
+    ladder: 'L1',
+    cost: 'ms',
+    cluster: false,
+    docker: false,
+    playwrightMcp: false,
+    fileKinds: UNIT_LOGIC,
+    fileGlobs: ['**/src/**/*.ts'],
+    testGlobs: [
+      '**/*.{test,spec}.ts',
+      '**/*.{test,spec}.tsx',
+      '**/__tests__/**/*.{ts,tsx}',
+    ],
+    excludeGlobs: [
+      '**/*.integration.test.ts',
+      '**/e2e-tests/**',
+      '**/src/index.ts',
+      '**/src/plugin.ts',
+    ],
+    templateHints: [
+      'plugins/*/src/**/__tests__/*.test.ts',
+      'plugins/*/src/**/*.test.ts',
+    ],
+    locate: { neighbor: true, naming: '{basename}.test.ts' },
+    runCommand: 'yarn test',
+    generator:
+      'Write a Jest/RTL unit test by mirroring the neighbor template. Assert the failure this change would cause, not a coverage delta. Use @backstage/test-utils or @backstage/frontend-test-utils as the template imports them — do not invent package names.',
+  },
+  {
+    id: 'integration',
+    title: 'L2 Backend integration (startTestBackend)',
+    description:
+      'Boots the real backend plugin and asserts the HTTP contract. Use when router/plugin wiring or auth policy changed.',
+    kind: 'integration',
+    ladder: 'L2',
+    cost: 's',
+    cluster: false,
+    docker: false,
+    playwrightMcp: false,
+    fileKinds: ['backend-router', 'backend-plugin', 'backend-service'],
+    fileGlobs: ['**/plugins/*-backend/**/router.ts', '**/plugins/*-backend/**/plugin.ts'],
+    testGlobs: ['**/*.integration.test.ts', '**/*.api.test.ts'],
+    templateHints: [
+      '**/*.integration.test.ts',
+      '**/plugin.api.test.ts',
+      '**/router.test.ts',
+    ],
+    locate: { neighbor: true, naming: '{basename}.integration.test.ts' },
+    runCommand: 'yarn test',
+    generator:
+      'Write a startTestBackend + supertest integration test. Assert status and body shape, not that the plugin booted. Allow a generous timeout. Mirror the neighbor *.integration.test.ts imports exactly.',
+  },
+  {
+    id: 'component',
+    title: 'L3 Component (RTL page composition)',
+    description:
+      'React page/component render with Testing Library. Prefer this over Playwright when no app-shell or real navigation is required.',
+    kind: 'component',
+    ladder: 'L3',
+    cost: 's',
+    cluster: false,
+    docker: false,
+    playwrightMcp: false,
+    fileKinds: ['react-component', 'react-page'],
+    fileGlobs: ['**/src/components/**/*.tsx', '**/src/pages/**/*.tsx'],
+    testGlobs: ['**/*.test.tsx', '**/__tests__/**/*.tsx'],
+    templateHints: ['**/src/components/**/__tests__/*.test.tsx'],
+    locate: { neighbor: true, naming: '{basename}.test.tsx' },
+    runCommand: 'yarn test',
+    generator:
+      'Write a Testing Library test that renders the component with the same providers as the neighbor. Prefer role/label queries. Do not launch a browser.',
+  },
+  {
+    id: 'ui',
+    title: 'L4 Plugin-source Playwright (mocked APIs)',
+    description:
+      'Workspace e2e against the plugin own app with mocked APIs. Cheapest UI layer. Generate with Playwright MCP — explore first, then write the spec.',
+    kind: 'ui',
+    ladder: 'L4a',
+    cost: 'min',
+    cluster: false,
+    docker: false,
+    playwrightMcp: true,
+    fileKinds: ['react-page', 'react-component'],
+    fileGlobs: [
+      '**/src/components/**/*Page*.tsx',
+      '**/src/components/**/*Router*.tsx',
+      '**/src/extensions/**/*.tsx',
+    ],
+    repoKinds: ['backstage-workspaces', 'backstage-monorepo'],
+    testGlobs: [
+      '**/e2e-tests/**/*.{test,spec}.ts',
+      '**/packages/app*/e2e-tests/**/*.{test,spec}.ts',
+    ],
+    templateHints: [
+      '**/e2e-tests/**/*.test.ts',
+      '**/packages/app-legacy/e2e-tests/**/*.test.ts',
+    ],
+    locate: {
+      neighbor: false,
+      directory: 'e2e-tests',
+      naming: '{plugin}.{feature}.test.ts',
+    },
+    runCommand: 'APP_MODE=legacy npx playwright test --project=en',
+    generator:
+      'Do not write Playwright code from the scenario text alone. Drive the live page with Playwright MCP (browser_navigate, browser_snapshot, browser_click, browser_generate_locator, browser_verify_*), then save a TypeScript spec that mirrors an existing workspace e2e file.',
+  },
+  {
+    id: 'smoke',
+    title: 'Overlay native smoke (OCI install + backend boot)',
+    description:
+      'Validates the published artifact installs and the backend plugin boots. No UI. Never add render tests here.',
+    kind: 'smoke',
+    ladder: 'smoke',
+    cost: 's',
+    cluster: false,
+    docker: false,
+    playwrightMcp: false,
+    fileKinds: ['overlay-metadata'],
+    fileGlobs: ['**/metadata/**/*.yaml', '**/dynamic-plugins.yaml'],
+    repoKinds: ['overlay-workspaces'],
+    testGlobs: ['smoke-tests-native/**/*.{ts,js,yaml}'],
+    templateHints: ['smoke-tests-native/'],
+    locate: {
+      neighbor: false,
+      directory: 'smoke-tests-native',
+      naming: '{workspace}.yaml',
+    },
+    runCommand: 'yarn smoke --dynamic-plugins <file>',
+    generator:
+      'Add or update a dynamic-plugins.yaml listing oci:// refs from spec.dynamicArtifact. Do not add UI-render tests in the overlay smoke harness.',
+  },
+  {
+    id: 'overlay-e2e',
+    title: 'Overlay cluster Playwright (live stack)',
+    description:
+      'Cluster e2e against the published artifact. Only for behavior mocks cannot catch (real MCP token, live LLM, OCI load).',
+    kind: 'ui',
+    ladder: 'L4b',
+    cost: 'cluster',
+    cluster: true,
+    docker: false,
+    playwrightMcp: true,
+    fileKinds: ['overlay-metadata', 'react-page'],
+    repoKinds: ['overlay-workspaces'],
+    fileGlobs: ['**/workspaces/*/e2e-tests/**'],
+    testGlobs: ['**/workspaces/*/e2e-tests/tests/specs/**/*.{test,spec}.ts'],
+    templateHints: ['**/e2e-tests/tests/specs/*.spec.ts'],
+    locate: {
+      neighbor: false,
+      directory: 'e2e-tests/tests/specs',
+      naming: '{feature}.spec.ts',
+    },
+    generator:
+      'Only when mocks cannot observe the behavior. Mirror overlay tests/specs/*.spec.ts. Prefer shared page objects over new selectors.',
+  },
+  {
+    id: 'cluster-free-e2e',
+    title: 'RHDH L4a cluster-free (plugin loads in real app)',
+    description:
+      'Frontend dynamic plugin rendered inside the real RHDH app without a cluster. Tag @cluster-free.',
+    kind: 'ui',
+    ladder: 'L4a',
+    cost: 'min',
+    cluster: false,
+    docker: false,
+    playwrightMcp: true,
+    fileKinds: ['react-page', 'plugin-wiring'],
+    repoKinds: ['rhdh-monorepo'],
+    fileGlobs: ['**/packages/app/**', '**/e2e-tests/**'],
+    testGlobs: ['e2e-tests/playwright/**/*.{test,spec}.ts'],
+    templateHints: ['e2e-tests/playwright/**/*.spec.ts'],
+    locate: {
+      neighbor: false,
+      directory: 'e2e-tests/playwright',
+      naming: '{feature}.spec.ts',
+    },
+    runCommand: 'yarn --cwd e2e-tests e2e:legacy-local',
+    generator:
+      'Tag { tag: "@cluster-free" } and add the spec to playwright.legacy-local.config.ts testMatch. Use Playwright MCP against the local harness. Mirror an existing cluster-free spec.',
+  },
+  {
+    id: 'cluster-e2e',
+    title: 'RHDH L4b cluster e2e (OCP / IdP / operator)',
+    description:
+      'Only when the subject is cluster/platform behavior or a real external service.',
+    kind: 'ui',
+    ladder: 'L4b',
+    cost: 'cluster',
+    cluster: true,
+    docker: false,
+    playwrightMcp: true,
+    fileKinds: ['platform'],
+    repoKinds: ['rhdh-monorepo', 'overlay-workspaces'],
+    fileGlobs: ['**/helm/**', '**/.tekton/**', '**/operator/**'],
+    testGlobs: ['e2e-tests/playwright/e2e/**/*.{test,spec}.ts'],
+    templateHints: ['e2e-tests/playwright/e2e/**/*.spec.ts'],
+    locate: {
+      neighbor: false,
+      directory: 'e2e-tests/playwright/e2e',
+      naming: '{feature}.spec.ts',
+    },
+    generator:
+      'Cluster e2e only. Add component annotation in beforeAll. Do not use this layer for plugin UI logic.',
+  },
+];

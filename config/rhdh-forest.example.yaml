@@ -1,0 +1,70 @@
+# Automation coverage — RHDH plugin forest
+#
+# Place this file at the repo root you want to plan from, or at
+# ~/.config/automation-coverage/config.yaml, or set
+# AUTOMATION_COVERAGE_CONFIG to its path.
+#
+# Overlay extra layers or disable builtins. Coverage numbers rank gaps;
+# they are not a merge gate.
+
+forest:
+  - key: plugins
+    path: /Users/hushaik/redhat_projects/rhdh-plugins
+    kind: backstage-workspaces
+  - key: community
+    path: /Users/hushaik/redhat_projects/community-plugins
+    kind: backstage-workspaces
+  - key: rhdh
+    path: /Users/hushaik/redhat_projects/rhdh
+    kind: rhdh-monorepo
+  - key: overlay
+    path: /Users/hushaik/redhat_projects/rhdh-plugin-export-overlays
+    kind: overlay-workspaces
+  - key: shared-e2e
+    path: /Users/hushaik/redhat_projects/lightspeed-playwright-e2e
+    kind: shared-playwright
+
+coverage:
+  targets:
+    default: 80
+    patch: 80
+  reportNames:
+    - coverage/coverage-final.json
+    - coverage/lcov.info
+  ignore:
+    - "**/*.test.ts"
+    - "**/*.test.tsx"
+    - "**/*.spec.ts"
+    - "**/*.spec.tsx"
+    - "**/src/index.ts"
+    - "**/src/plugin.ts"
+    - "**/src/translations/**"
+
+playwrightMcp:
+  enabled: true
+  serverName: playwright
+  testingCaps: true
+
+# Disable a builtin: disabledLayers: [cluster-e2e]
+
+# Custom layer example — merged by id with builtins
+layers:
+  - id: contract
+    title: HTTP contract
+    kind: custom
+    ladder: custom
+    cost: s
+    playwrightMcp: false
+    fileKinds:
+      - backend-router
+    fileGlobs:
+      - "**/router.ts"
+    testGlobs:
+      - "**/*.contract.test.ts"
+    locate:
+      neighbor: true
+      naming: "{basename}.contract.test.ts"
+    runCommand: yarn test
+    generator: >
+      Write a contract test that asserts the public HTTP schema.
+      Mirror plugin.api.test.ts if a neighbor contract test does not exist.

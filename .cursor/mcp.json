@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "automation-coverage": {
+      "command": "npx",
+      "args": ["tsx", "./src/index.ts"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest", "--caps=testing"]
+    }
+  }
+}

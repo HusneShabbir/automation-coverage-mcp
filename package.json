@@ -1,0 +1,41 @@
+{
+  "name": "automation-coverage-mcp",
+  "version": "0.1.0",
+  "description": "Coverage-driven test generation MCP for RHDH plugin forests. Analyzes changes, reads coverage, and produces pluggable layer briefs (unit, integration, UI) for agents — pairing UI work with Playwright MCP.",
+  "type": "module",
+  "bin": {
+    "automation-coverage-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "mcp",
+    "coverage",
+    "playwright",
+    "rhdh",
+    "backstage",
+    "testing"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "minimatch": "^10.0.3",
+    "yaml": "^2.8.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
