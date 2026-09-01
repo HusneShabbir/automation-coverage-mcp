@@ -1,5 +1,7 @@
 node_modules/
 dist/
-coverage/
+# Istanbul/LCOV reports at the repo root. Do not use a bare `coverage/`
+# pattern — that also ignores src/coverage/ (the report parser).
+/coverage/
 *.log
 .DS_Store
